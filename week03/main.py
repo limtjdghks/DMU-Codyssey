@@ -1,48 +1,39 @@
-from __future__ import annotations
-
-import csv
-from dataclasses import dataclass
-from datetime import datetime
-from pathlib import Path
-
-
-TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S'
-
-
-@dataclass(frozen=True)
-class LogRow:
-    timestamp: datetime
-    event: str
-    message: str
-
-    def to_csv_line(self) -> str:
-        timestamp_str = self.timestamp.strftime(TIMESTAMP_FORMAT)
-        return f'{timestamp_str},{self.event},{self.message}'
+def parse_log_line(line: str) -> tuple[str, str, str]:
+    parts = line.split(',', 2)
+    if len(parts) != 3:
+        raise ValueError('Invalid log line format.')
+    timestamp = parts[0].strip()
+    event = parts[1].strip()
+    message = parts[2].strip()
+    return timestamp, event, message
 
 
-def parse_timestamp(value: str) -> datetime:
-    return datetime.strptime(value, TIMESTAMP_FORMAT)
+def load_log_rows(path: str) -> list[tuple[str, str, str]]:
+    with open(path, 'r', encoding='utf-8') as file:
+        lines = file.read().splitlines()
+
+    if not lines:
+        raise ValueError('Log file is empty.')
+
+    header = lines[0].strip()
+    if header != 'timestamp,event,message':
+        raise ValueError('Unexpected log header/columns.')
+
+    rows: list[tuple[str, str, str]] = []
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        rows.append(parse_log_line(line))
+    return rows
 
 
-def load_log_rows(path: str) -> list[LogRow]:
-    with open(path, 'r', encoding='utf-8', newline='') as file:
-        reader = csv.DictReader(file)
-
-        if reader.fieldnames != ['timestamp', 'event', 'message']:
-            raise ValueError('Unexpected log header/columns.')
-
-        rows: list[LogRow] = []
-        for row in reader:
-            timestamp = parse_timestamp(row['timestamp'])
-            event = row['event']
-            message = row['message']
-            rows.append(LogRow(timestamp=timestamp, event=event, message=message))
-
-        return rows
+def to_csv_line(row: tuple[str, str, str]) -> str:
+    timestamp, event, message = row
+    return f'{timestamp},{event},{message}'
 
 
-def is_problematic(row: LogRow) -> bool:
-    message = row.message.lower()
+def is_problematic(row: tuple[str, str, str]) -> bool:
+    message = row[2].lower()
     if 'unstable' in message:
         return True
     if 'explosion' in message:
@@ -50,14 +41,11 @@ def is_problematic(row: LogRow) -> bool:
     return False
 
 
-def save_problematic_rows(path: str, rows: list[LogRow]) -> None:
-    output_path = Path(path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, 'w', encoding='utf-8', newline='') as file:
+def save_problematic_rows(path: str, rows: list[tuple[str, str, str]]) -> None:
+    with open(path, 'w', encoding='utf-8') as file:
         file.write('timestamp,event,message\n')
         for row in rows:
-            file.write(row.to_csv_line())
+            file.write(to_csv_line(row))
             file.write('\n')
 
 
@@ -85,14 +73,14 @@ def main() -> None:
     print('--- ORIGINAL ORDER ---')
     print('timestamp,event,message')
     for row in rows:
-        print(row.to_csv_line())
+        print(to_csv_line(row))
 
     print('--- REVERSE CHRONOLOGICAL ORDER ---')
-    rows_sorted = sorted(rows, key=lambda row: row.timestamp, reverse=True)
+    rows_sorted = sorted(rows, key=lambda row: row[0], reverse=True)
 
     print('timestamp,event,message')
     for row in rows_sorted:
-        print(row.to_csv_line())
+        print(to_csv_line(row))
 
     problematic_rows = [row for row in rows_sorted if is_problematic(row)]
     try:
